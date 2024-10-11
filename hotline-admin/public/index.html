@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion des Clients avec Google Maps</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        img {
+            width: 100px;
+            height: auto;
+        }
+        #mapContainer {
+            display: flex;
+            margin-top: 20px;
+        }
+        #map, #streetView {
+            height: 500px;
+            width: 50%;
+        }
+    </style>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDycNphhmRSHYDBuvVednqs87TIX9oLlKs"></script>
+</head>
+<body>
+
+<h1>Gestion des Clients</h1>
+
+<form id="clientForm">
+    <input type="text" id="nom" placeholder="Nom" required>
+    <input type="text" id="prenom" placeholder="Prénom" required>
+    <input type="text" id="adresse" placeholder="Adresse" required>
+    <input type="text" id="codePostal" placeholder="Code Postal" required>
+    <input type="text" id="ville" placeholder="Ville" required>
+    <button type="submit">Ajouter Client</button>
+</form>
+
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Nom</th>
+            <th>Prénom</th>
+            <th>Adresse</th>
+            <th>Code Postal</th>
+            <th>Ville</th>
+            <th>Carte</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody id="clientsTableBody">
+        <!-- Les clients seront ajoutés ici -->
+    </tbody>
+</table>
+
+<div id="mapContainer">
+    <div id="map"></div>
+    <div id="streetView"></div>
+</div>
+
+<script>
+    document.getElementById('clientForm').addEventListener('submit', function(event) {
+        event.preventDefault(); // Empêche le rechargement de la page
+
+        const newClient = {
+            nom: document.getElementById('nom').value,
+            prenom: document.getElementById('prenom').value,
+            adresse: document.getElementById('adresse').value,
+            codePostal: document.getElementById('codePostal').value,
+            ville: document.getElementById('ville').value
+        };
+
+        fetch('/api/clients', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(newClient)
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Client ajouté:', data);
+            fetchClients(); // Recharge la liste des clients
+            document.getElementById('clientForm').reset(); // Réinitialise le formulaire
+        })
+        .catch(err => console.error('Erreur lors de l\'ajout du client:', err));
+    });
+
+    function fetchClients() {
+        fetch('/api/clients')
+            .then(response => response.json())
+            .then(clients => {
+                const clientsTableBody = document.getElementById('clientsTableBody');
+                clientsTableBody.innerHTML = ''; // Efface la table
+
+                clients.forEach(client => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${client._id}</td>
+                        <td>${client.nom}</td>
+                        <td>${client.prenom}</td>
+                        <td>${client.adresse}</td>
+                        <td>${client.codePostal}</td>
+                        <td>${client.ville}</td>
+                        <td>
+                            <img src="${getStaticMapUrl(client.adresse, client.codePostal, client.ville)}" alt="Carte de ${client.adresse}">
+                        </td>
+                        <td>
+                            <button onclick="showMapAndStreetView('${client.adresse}', '${client.codePostal}', '${client.ville}')">Voir sur Google Maps</button>
+                            <button onclick="getUrbanismeData('${client.adresse}', '${client.codePostal}', '${client.ville}')">Données GpU</button>
+                            <button onclick="deleteClient('${client._id}')">Supprimer</button>
+                        </td>
+                    `;
+                    clientsTableBody.appendChild(row);
+                });
+            })
+            .catch(err => console.error('Erreur lors de la récupération des clients:', err));
+    }
+
+    function getStaticMapUrl(adresse, codePostal, ville) {
+        const formattedAddress = `${adresse}, ${codePostal} ${ville}`;
+        const apiKey = 'YOUR_GOOGLE_MAPS_API_KEY'; // Remplacez par votre clé API
+        return `https://maps.googleapis.com/maps/api/staticmap?size=600x300&markers=${encodeURIComponent(formattedAddress)}&key=${apiKey}`;
+    }
+
+    function showMapAndStreetView(adresse, codePostal, ville) {
+        const formattedAddress = `${adresse}, ${codePostal} ${ville}`;
+
+        const geocoder = new google.maps.Geocoder();
+        geocoder.geocode({ 'address': formattedAddress }, function(results, status) {
+            if (status === 'OK') {
+                const location = results[0].geometry.location;
+
+                const map = new google.maps.Map(document.getElementById('map'), {
+                    center: location,
+                    zoom: 18,
+                    mapTypeId: 'satellite'
+                });
+
+                const panorama = new google.maps.StreetViewPanorama(
+                    document.getElementById('streetView'), {
+                        position: location,
+                        pov: {
+                            heading: 34,
+                            pitch: 10
+                        }
+                    }
+                );
+
+                map.setStreetView(panorama);
+            } else {
+                alert('Geocode was not successful for the following reason: ' + status);
+            }
+        });
+    }
+
+    // Fonction pour récupérer les données urbanistiques
+    function getUrbanismeData(adresse, codePostal, ville) {
+        const formattedAddress = `${adresse}, ${codePostal} ${ville}`;
+        const apiUrl = `https://apicarto.ign.fr/api/gpu/${formattedAddress}`; // Vérifiez l'URL
+        const apiKey = 'YOUR_IGN_API_KEY'; // Remplacez par votre clé API
+
+        fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Données Urbanisme:', data);
+            alert(JSON.stringify(data, null, 2)); // Affiche les données dans une alerte (à remplacer par une meilleure gestion)
+        })
+        .catch(err => console.error('Erreur lors de la récupération des données GpU:', err));
+    }
+
+    function deleteClient(clientId) {
+        fetch(`/api/clients/${clientId}`, {
+            method: 'DELETE'
+        })
+        .then(() => {
+            console.log('Client supprimé');
+            fetchClients(); // Recharge la liste des clients
+        })
+        .catch(err => console.error('Erreur lors de la suppression du client:', err));
+    }
+
+    fetchClients();
+</script>
+
+</body>
+</html>
